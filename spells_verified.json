@@ -1,0 +1,524 @@
+{
+ "acid-arrow": {
+  "bonus_action": false,
+  "concentration": false,
+  "damage": "4d4",
+  "damage_types": [
+   "acid"
+  ],
+  "heal": "",
+  "kinds": [
+   "attack",
+   "damage"
+  ],
+  "level": 2,
+  "name": "Acid Arrow",
+  "reach_ft": 90,
+  "save": [],
+  "shape": "",
+  "verified": "attack+damage"
+ },
+ "acid-splash": {
+  "bonus_action": false,
+  "concentration": false,
+  "damage": "1d6",
+  "damage_types": [
+   "acid"
+  ],
+  "heal": "",
+  "kinds": [
+   "save"
+  ],
+  "level": 0,
+  "name": "Acid Splash",
+  "reach_ft": 60,
+  "save": [
+   "dex"
+  ],
+  "shape": "sphere 5ft",
+  "verified": "damage+save"
+ },
+ "burning-hands": {
+  "bonus_action": false,
+  "concentration": false,
+  "damage": "3d6",
+  "damage_types": [
+   "fire"
+  ],
+  "heal": "",
+  "kinds": [
+   "save"
+  ],
+  "level": 1,
+  "name": "Burning Hands",
+  "reach_ft": 15,
+  "save": [
+   "dex"
+  ],
+  "shape": "cone 15ft",
+  "verified": "damage+save"
+ },
+ "chill-touch": {
+  "bonus_action": false,
+  "concentration": false,
+  "damage": "1d10",
+  "damage_types": [
+   "necrotic"
+  ],
+  "heal": "",
+  "kinds": [
+   "attack"
+  ],
+  "level": 0,
+  "name": "Chill Touch",
+  "reach_ft": 5,
+  "save": [],
+  "shape": "",
+  "verified": "attack+damage"
+ },
+ "chromatic-orb": {
+  "bonus_action": false,
+  "concentration": false,
+  "damage": "3d8",
+  "damage_types": [
+   "acid",
+   "cold",
+   "fire",
+   "lightning",
+   "poison",
+   "thunder"
+  ],
+  "heal": "",
+  "kinds": [
+   "attack"
+  ],
+  "level": 1,
+  "name": "Chromatic Orb",
+  "reach_ft": 90,
+  "save": [],
+  "shape": "",
+  "verified": "attack+damage"
+ },
+ "cure-wounds": {
+  "bonus_action": false,
+  "concentration": false,
+  "damage": "",
+  "damage_types": [],
+  "heal": "2d8",
+  "kinds": [
+   "heal"
+  ],
+  "level": 1,
+  "name": "Cure Wounds",
+  "reach_ft": 5,
+  "save": [],
+  "shape": "",
+  "verified": "heal"
+ },
+ "dissonant-whispers": {
+  "bonus_action": false,
+  "concentration": false,
+  "damage": "3d6",
+  "damage_types": [
+   "psychic"
+  ],
+  "heal": "",
+  "kinds": [
+   "save"
+  ],
+  "level": 1,
+  "name": "Dissonant Whispers",
+  "reach_ft": 60,
+  "save": [
+   "wis"
+  ],
+  "shape": "",
+  "verified": "damage+save"
+ },
+ "eldritch-blast": {
+  "bonus_action": false,
+  "concentration": false,
+  "damage": "1d10",
+  "damage_types": [
+   "force"
+  ],
+  "heal": "",
+  "kinds": [
+   "attack"
+  ],
+  "level": 0,
+  "name": "Eldritch Blast",
+  "reach_ft": 120,
+  "save": [],
+  "shape": "",
+  "verified": "attack+damage"
+ },
+ "fire-bolt": {
+  "bonus_action": false,
+  "concentration": false,
+  "damage": "1d10",
+  "damage_types": [
+   "fire"
+  ],
+  "heal": "",
+  "kinds": [
+   "attack"
+  ],
+  "level": 0,
+  "name": "Fire Bolt",
+  "reach_ft": 120,
+  "save": [],
+  "shape": "",
+  "verified": "attack+damage"
+ },
+ "fireball": {
+  "bonus_action": false,
+  "concentration": false,
+  "damage": "8d6",
+  "damage_types": [
+   "fire"
+  ],
+  "heal": "",
+  "kinds": [
+   "save"
+  ],
+  "level": 3,
+  "name": "Fireball",
+  "reach_ft": 150,
+  "save": [
+   "dex"
+  ],
+  "shape": "sphere 20ft",
+  "verified": "damage+save"
+ },
+ "guiding-bolt": {
+  "bonus_action": false,
+  "concentration": false,
+  "damage": "4d6",
+  "damage_types": [
+   "radiant"
+  ],
+  "heal": "",
+  "kinds": [
+   "attack"
+  ],
+  "level": 1,
+  "name": "Guiding Bolt",
+  "reach_ft": 120,
+  "save": [],
+  "shape": "",
+  "verified": "attack+damage"
+ },
+ "healing-word": {
+  "bonus_action": true,
+  "concentration": false,
+  "damage": "",
+  "damage_types": [],
+  "heal": "2d4",
+  "kinds": [
+   "heal"
+  ],
+  "level": 1,
+  "name": "Healing Word",
+  "reach_ft": 60,
+  "save": [],
+  "shape": "",
+  "verified": "heal"
+ },
+ "inflict-wounds": {
+  "bonus_action": false,
+  "concentration": false,
+  "damage": "2d10",
+  "damage_types": [
+   "necrotic"
+  ],
+  "heal": "",
+  "kinds": [
+   "save"
+  ],
+  "level": 1,
+  "name": "Inflict Wounds",
+  "reach_ft": 5,
+  "save": [
+   "con"
+  ],
+  "shape": "",
+  "verified": "damage+save"
+ },
+ "lightning-bolt": {
+  "bonus_action": false,
+  "concentration": false,
+  "damage": "8d6",
+  "damage_types": [
+   "lightning"
+  ],
+  "heal": "",
+  "kinds": [
+   "save"
+  ],
+  "level": 3,
+  "name": "Lightning Bolt",
+  "reach_ft": 100,
+  "save": [
+   "dex"
+  ],
+  "shape": "line 100ft",
+  "verified": "damage+save"
+ },
+ "magic-missile": {
+  "bonus_action": false,
+  "concentration": false,
+  "damage": "1d4+1",
+  "damage_types": [
+   "force"
+  ],
+  "heal": "",
+  "kinds": [
+   "damage"
+  ],
+  "level": 1,
+  "name": "Magic Missile",
+  "reach_ft": 120,
+  "save": [],
+  "shape": "",
+  "verified": "damage"
+ },
+ "mass-healing-word": {
+  "bonus_action": true,
+  "concentration": false,
+  "damage": "",
+  "damage_types": [],
+  "heal": "2d4",
+  "kinds": [
+   "heal"
+  ],
+  "level": 3,
+  "name": "Mass Healing Word",
+  "reach_ft": 60,
+  "save": [],
+  "shape": "",
+  "verified": "heal"
+ },
+ "poison-spray": {
+  "bonus_action": false,
+  "concentration": false,
+  "damage": "1d12",
+  "damage_types": [
+   "poison"
+  ],
+  "heal": "",
+  "kinds": [
+   "attack"
+  ],
+  "level": 0,
+  "name": "Poison Spray",
+  "reach_ft": 30,
+  "save": [],
+  "shape": "",
+  "verified": "attack+damage"
+ },
+ "produce-flame": {
+  "bonus_action": true,
+  "concentration": false,
+  "damage": "1d8",
+  "damage_types": [
+   "fire"
+  ],
+  "heal": "",
+  "kinds": [
+   "attack"
+  ],
+  "level": 0,
+  "name": "Produce Flame",
+  "reach_ft": 0,
+  "save": [],
+  "shape": "",
+  "verified": "attack+damage"
+ },
+ "ray-of-frost": {
+  "bonus_action": false,
+  "concentration": false,
+  "damage": "1d8",
+  "damage_types": [
+   "cold"
+  ],
+  "heal": "",
+  "kinds": [
+   "attack"
+  ],
+  "level": 0,
+  "name": "Ray of Frost",
+  "reach_ft": 60,
+  "save": [],
+  "shape": "",
+  "verified": "attack+damage"
+ },
+ "ray-of-sickness": {
+  "bonus_action": false,
+  "concentration": false,
+  "damage": "2d8",
+  "damage_types": [
+   "poison"
+  ],
+  "heal": "",
+  "kinds": [
+   "attack"
+  ],
+  "level": 1,
+  "name": "Ray of Sickness",
+  "reach_ft": 60,
+  "save": [],
+  "shape": "",
+  "verified": "attack+damage"
+ },
+ "sacred-flame": {
+  "bonus_action": false,
+  "concentration": false,
+  "damage": "1d8",
+  "damage_types": [
+   "radiant"
+  ],
+  "heal": "",
+  "kinds": [
+   "save"
+  ],
+  "level": 0,
+  "name": "Sacred Flame",
+  "reach_ft": 60,
+  "save": [
+   "dex"
+  ],
+  "shape": "",
+  "verified": "damage+save"
+ },
+ "scorching-ray": {
+  "bonus_action": false,
+  "concentration": false,
+  "damage": "2d6",
+  "damage_types": [
+   "fire"
+  ],
+  "heal": "",
+  "kinds": [
+   "attack"
+  ],
+  "level": 2,
+  "name": "Scorching Ray",
+  "reach_ft": 120,
+  "save": [],
+  "shape": "",
+  "verified": "attack+damage"
+ },
+ "shatter": {
+  "bonus_action": false,
+  "concentration": false,
+  "damage": "3d8",
+  "damage_types": [
+   "thunder"
+  ],
+  "heal": "",
+  "kinds": [
+   "save"
+  ],
+  "level": 2,
+  "name": "Shatter",
+  "reach_ft": 60,
+  "save": [
+   "con"
+  ],
+  "shape": "sphere 10ft",
+  "verified": "damage+save"
+ },
+ "shocking-grasp": {
+  "bonus_action": false,
+  "concentration": false,
+  "damage": "1d8",
+  "damage_types": [
+   "lightning"
+  ],
+  "heal": "",
+  "kinds": [
+   "attack"
+  ],
+  "level": 0,
+  "name": "Shocking Grasp",
+  "reach_ft": 5,
+  "save": [],
+  "shape": "",
+  "verified": "attack+damage"
+ },
+ "starry-wisp": {
+  "bonus_action": false,
+  "concentration": false,
+  "damage": "1d8",
+  "damage_types": [
+   "radiant"
+  ],
+  "heal": "",
+  "kinds": [
+   "attack"
+  ],
+  "level": 0,
+  "name": "Starry Wisp",
+  "reach_ft": 60,
+  "save": [],
+  "shape": "",
+  "verified": "attack+damage"
+ },
+ "thunderwave": {
+  "bonus_action": false,
+  "concentration": false,
+  "damage": "2d8",
+  "damage_types": [
+   "thunder"
+  ],
+  "heal": "",
+  "kinds": [
+   "save"
+  ],
+  "level": 1,
+  "name": "Thunderwave",
+  "reach_ft": 15,
+  "save": [
+   "con"
+  ],
+  "shape": "cube 15ft",
+  "verified": "damage+save"
+ },
+ "true-strike": {
+  "bonus_action": false,
+  "concentration": false,
+  "damage": "",
+  "damage_types": [],
+  "heal": "",
+  "kinds": [
+   "attack"
+  ],
+  "level": 0,
+  "name": "True Strike",
+  "reach_ft": 0,
+  "save": [],
+  "shape": "",
+  "verified": "attack"
+ },
+ "vicious-mockery": {
+  "bonus_action": false,
+  "concentration": false,
+  "damage": "1d6",
+  "damage_types": [
+   "psychic"
+  ],
+  "heal": "",
+  "kinds": [
+   "save"
+  ],
+  "level": 0,
+  "name": "Vicious Mockery",
+  "reach_ft": 60,
+  "save": [
+   "wis"
+  ],
+  "shape": "",
+  "verified": "damage+save"
+ }
+}
