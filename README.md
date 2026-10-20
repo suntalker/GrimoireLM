@@ -50,9 +50,7 @@ turns stay verbatim. The raw log is never deleted (saves/<name>/log.jsonl).
 - Tests: `python test_narrative.py`
 - **Permanent endings**: update_entity(status=...) retires an entity for good: `dead` (npc), `disbanded` (faction), `resolved` (subplot), always with a `reason`. Retired entities leave the watchdog, the planner (their ids are stripped from every plan), the profile injection and the cast-size limit, and the prompt carries a one-line "THE DEAD AND DISBANDED" roster so the DM never improvises them alive. `interact` and `create_entity` refuse to touch them. A tracked NPC killed in combat is marked dead automatically when a defeated monster's name exactly matches theirs. Reviving someone requires a concrete in-story `reason` (10+ characters) and is logged as a memory.
 
-## Group battles (companions)
-- **Many enemies** have always worked: `start_encounter` takes any mix of templates and invented creatures (up to `max_monsters`), and they all act on their own turns.
-- **Companions** live in a roster (`party` tool) with a tag: `active`, `inactive`, or `dead`. Only ACTIVE companions (up to `max_active_companions`=3) are placed in combat next to the player; inactive ones wait safely behind. Recruit / activate / deactivate / dismiss are only possible outside combat: the engine cannot add combatants mid-fight, so set the party BEFORE `start_encounter`.
+## Companions
 - The engine builds each companion as a real character and plays their turns with a simple AI (see below). Enemies target companions too.
 - Companion HP carries between fights; `rest` heals them. A companion who falls is marked dead in the roster AND the narrative tracker (permanent, same rules as any NPC). If the player character falls the fight ends as a defeat.
 - Recruits are also tracked people (relationship starts at +20, memories, watchdog). Tests: `python test_party.py`.
