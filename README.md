@@ -5,8 +5,8 @@ The engine owns every number. The model narrates, picks tool calls, and writes s
 ## Setup
     python -m venv venv && source venv/bin/activate      # Windows: venv\Scripts\activate
     pip install -r requirements.txt
-    python test_smoke.py        # offline test with a scripted fake model; needs no server
-    python game.py              # needs a model server
+    python test_smoke.py        
+    python game.py              
 
 ## Point it at a model (config.json next to game.py, any field optional)
     {"base_url": "http://localhost:1234/v1", "model": "openai/gpt-oss-20b", "reasoning_effort": "low"}
@@ -28,15 +28,6 @@ After every turn the loop saves, and summarizes when unsummarized turns >= summa
 or ~summary_token_threshold (1800) tokens, or when a combat ends. The newest summary_keep_recent (3)
 turns stay verbatim. The raw log is never deleted (saves/<name>/log.jsonl).
 
-## Known limits
-- Mid-combat state is not saved; save/quit between encounters.
-- rest() restores HP and spell slots only (feature-use recovery not wired up).
-- Unique weapons (forge_weapon) are melee: a real SRD chassis + up to 2 rider damage entries + an optional single-target damage power with 1-3 charges. Powers cannot apply conditions (the engine can't resolve custom effects), and the save DC is set by the engine, not by us. Weapon masteries and passive wielder bonuses are not used.
-- Gold is an engine ledger (starts at 15 gp). change_gold / buy_item / remove_item are the only ways money and plain items move; standard weapons and armor are priced from the SRD data and really equipped (body armor swaps and AC is recomputed by the engine; downgrades are refused).
-- Rare/legendary weapons need a boss reward (earned by winning a fight with a CR>=1 or high-threat foe).
-- Unique armor (forge_armor) = real SRD armor/shield chassis + magical AC bonus + up to 2 damage resistances + optional power; it replaces worn armor and may not lower AC. Rare armor and rare weapons draw from the same boss reward. Invented potions are not supported yet; trinkets are inventory only.
-- Only a fixed action set is exposed (attack, spells, dash, dodge, ...); homebrew abilities come next.
-- Pinned to dnd5e-engine 0.7.0; the API is young, so re-run test_smoke.py after any upgrade.
 
 ## Narrative layer (narrative.py)
 - **Manifest**: saves/<name>/manifest.json (theme, goal, antagonist). Permanent; hand edits are honored. Asked once at new game; blanks are invented by the model.
@@ -54,9 +45,6 @@ turns stay verbatim. The raw log is never deleted (saves/<name>/log.jsonl).
 - The engine builds each companion as a real character and plays their turns with a simple AI (see below). Enemies target companions too.
 - Companion HP carries between fights; `rest` heals them. A companion who falls is marked dead in the roster AND the narrative tracker (permanent, same rules as any NPC). If the player character falls the fight ends as a defeat.
 - Recruits are also tracked people (relationship starts at +20, memories, watchdog). Tests: `python test_party.py`.
-
-## Text limits
-Schemas never send a hard `maxLength` to the model: servers that enforce JSON schemas during generation would cut text mid-sentence at the limit. The limit is stated in the field description and anything still too long is trimmed to the last complete sentence (soft.py).
 
 ## Companions designed by the DM (setting-flexible)
 - `party(recruit, ...)`: the DM picks a **class** (the mechanical chassis: fighter, rogue, barbarian, monk, wizard, cleric, druid, bard, sorcerer), a flavor **title**, and designs the abilities for this setting:
