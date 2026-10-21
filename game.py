@@ -68,6 +68,24 @@ NUDGE = ("[ENGINE NOTICE] Your last reply described mechanical outcomes without 
          "If no fight is active, call start_encounter now; if one is active, call submit_action (or get_scene). "
          "Then narrate ONLY what the tool returns.")
 
+# --- overworld layer (appended): travel words that make narrating without world_* tools invented mechanics.
+import world as worldmod                                # noqa: E402  (terrain/collision subsystem, see world.py)
+
+TRAVEL = re.compile(r"\b(travel|walk|travelling|go|going|march|head|ride|sail|journey|trek|move|moving|hike|"
+                    r"run away|set off|set out|venture|north|south|east|west|northeast|northwest|southeast|"
+                    r"southwest|toward|towards)\w*\b", re.I)
+
+NUDGE_WORLD = ("[ENGINE NOTICE] Your last reply described travel or terrain without calling a tool, so it was "
+               "discarded. The continent map lives in Python and you cannot see it. Call world_travel for movement "
+               "(it halts at mountains, rivers and cloud exclusion zones), world_look before describing scenery, "
+               "or world_terrain/world_landmark to survey a place. Then narrate ONLY what the tool returns.")
+
+
+def _is_pure_travel(text: str) -> bool:
+    """True when the player only asks to move: no combat/transaction/tracked-entity signal competes."""
+    return bool(TRAVEL.search(text)) and not (VIOLENCE.search(text) or TRANSACTION.search(text)
+                                              or PARTY.search(text) or LOOT.search(text))
+
 
 class Game:
     def __init__(self, cfg: Config, llm, adapter: EngineAdapter, lore: LoreStore, store: SessionStore, state: SessionState):
@@ -78,6 +96,10 @@ class Game:
         self._turn_tools: list[tuple] = []
         self._auto_reply = False
         self._player_text = ""
+        # One-shot cinematic directives (terrain transitions / fast-travel summaries). They are
+        # injected into THIS turn's messages only and reset at the start of every dm_turn, so the
+        # instruction never persists in history ('context stripping').
+        self._turn_directive = ""
 
     # ------------------------------------------------------------ prompt assembly
     def build_messages(self, player_text: str) -> list[dict]:
@@ -93,6 +115,9 @@ class Game:
         if pushed:
             memory.append("POSSIBLY RELEVANT NOTES (data):\n- " + "\n- ".join(pushed))
 
+        if getattr(self.adapter, "world", None) is not None:   # overworld layer (appended): teach the travel contract
+            memory.append(__import__("tools").WORLD_RULES)     # short static text; the map itself is NEVER sent
+
         msgs: list[dict] = [{"role": "system", "content": DM_RULES}]
         if memory:
             msgs.append({"role": "system", "content": "\n\n".join(memory)})
@@ -100,6 +125,11 @@ class Game:
             msgs.append({"role": "user", "content": t["player"]})
             msgs.append({"role": "assistant", "content": t["dm"]})
         msgs.append({"role": "system", "content": "CURRENT SCENE (authoritative, from the engine):\n" + json.dumps(self.adapter.snapshot())})
+        # Single-turn prompt injection (appended): a Python-detected event (biome boundary crossed,
+        # fast-travel completed) appends ONE specialized constraint for THIS turn only. build_messages
+        # is rebuilt fresh every turn and dm_turn resets _turn_directive, so it strips itself next turn.
+        if getattr(self.adapter, "world", None) is not None and self._turn_directive:
+            msgs.append({"role": "system", "content": self._turn_directive})
         msgs.append({"role": "user", "content": player_text})
         return msgs
 
@@ -128,6 +158,9 @@ class Game:
             return NUDGE
         if TRANSACTION.search(player_text):
             return NUDGE_ITEMS
+        # overworld gate (appended): travel narrated without world_travel is a hallucinated walk through walls
+        if getattr(self.adapter, "world", None) is not None and _is_pure_travel(player_text):
+            return NUDGE_WORLD
         return None
 
     def dm_turn(self, player_text: str) -> str:
@@ -136,6 +169,7 @@ class Game:
         msgs = self.build_messages(player_text)
         self._turn_events = []
         self._turn_tools: list[tuple] = []
+        self._turn_directive = ""                  # context stripping: last turn's one-shot note is gone
         self._auto_reply = False
         nudges = 0
         for _ in range(self.cfg.max_tool_steps + self.cfg.max_nudges):
@@ -160,6 +194,15 @@ class Game:
             for c in calls:
                 result = dispatch(c.function.name, c.function.arguments, self.ctx)
                 self._turn_tools.append((c.function.name, bool(result.get("ok", True)), str(result.get("error", ""))))
+                # Event-driven one-shot directives (appended): Python flags a biome boundary or a
+                # completed fast-travel on the ToolContext; we POP it so the specialized constraint
+                # rides into the remaining narration calls of THIS turn only and strips itself next turn.
+                if getattr(self.adapter, "world", None) is not None:
+                    _d = __import__("tools").take_transition_directive(self.ctx) or \
+                         __import__("tools").take_fast_travel_directive(self.ctx)
+                    if _d:
+                        self._turn_directive = _d
+                        msgs.append({"role": "system", "content": _d})
                 reply = result.get("auto_reply")
                 if reply and (result.get("auto_always") or self._mentioned(result.get("requested", ""), player_text)):
                     self._auto_reply = True            # the player asked for something they lack: answer for free
@@ -177,6 +220,10 @@ class Game:
         if not self._turn_tools:
             return "[no tools called]"
         parts = [f"{n} ok" if ok else f"{n} ERROR({err[:90]})" for n, ok, err in self._turn_tools]
+        # Skip-travel HUD (appended): show distance traveled + time elapsed straight from the payload.
+        ft = self.ctx.flags.pop("fast_travel_hud", None)
+        if ft:
+            parts.append(f"traveled {ft['tiles']} tiles / {ft['hours']}h -> {ft['dest']} [{ft['clock']}]")
         return "[tools: " + ", ".join(parts) + "]"
 
     # ------------------------------------------------------------ forced bookkeeping
@@ -204,6 +251,8 @@ class Game:
             info["watchdog"] = [f"{a['name']} ({a['days']} days)" for a in new]
         info["pending_turns"] = len(s.pending())
         s.engine = self.adapter.export_state()
+        if getattr(self.adapter, "world", None) is not None:      # overworld layer: keep the continent in the save
+            s.engine["world"] = self.adapter.world.export_state()
         self.store.save(s)
         return info
 
@@ -254,7 +303,28 @@ def bootstrap(cfg: Config, llm) -> Game:
         store.save(state)
         print(f"\nTheme: {manifest['theme']}\nGoal: {manifest['goal']}\nAntagonist: {manifest['antagonist_name']}")
     lore = LoreStore(cfg.lore_dir)
-    return Game(cfg, llm, adapter, lore, store, state)
+    game = Game(cfg, llm, adapter, lore, store, state)
+
+    # --- overworld layer (appended): one-time bulk continent generation, before play begins.
+    # The map lives in Python only: the LLM sees terrain exclusively through the world_* tools.
+    if getattr(adapter, "world", None) is None:
+        saved = state.engine.get("world")
+        if saved:                                            # resume: rebuild the exact same continent from the save
+            adapter.world = worldmod.WorldMap()
+            adapter.world.restore(saved)
+        else:                                                # fresh boot: ONE structured call paints the whole landmass
+            print("\nGenerating the continent (one-time bulk layout)...")
+            adapter.world = worldmod.generate_continent(llm, cfg, manifest=manifest, seed=cfg.seed,
+                                                        theme=manifest.get("theme", ""))
+            failed = len(getattr(adapter.world, "errors", []))
+            print(f"[world built: {len(adapter.world.world_map)} painted tiles, "
+                  f"{len(adapter.world.landmarks)} landmarks"
+                  f"{f', {failed} payload entries skipped' if failed else ''}]")
+            if adapter.world.named_features:
+                print("Landmarks include: " + ", ".join(list(adapter.world.named_features)[:6]) + " ...")
+            state.engine["world"] = adapter.world.export_state()   # persisted with the rest of the engine state
+            store.save(state)
+    return game
 
 
 def main() -> None:
@@ -298,6 +368,49 @@ def main() -> None:
         if text == "/summary":
             print("Summarized." if summarize(game.state, game.llm, cfg) else "Nothing to summarize yet.")
             game.store.save(game.state)
+            continue
+        # --- overworld layer (appended): /map prints the CLI world map straight from Python.
+        # The LLM never sees this output and it is NOT sent as a player turn: it's a pure
+        # viewer command (the Pygame viewport in world_render.py does the same job graphically).
+        #   /map          -> viewport around the player (🔴 marks the party)
+        #   /map <name>   -> zoomed-out view centered on a landmark (e.g. /map citadel)
+        #   /map all      -> full continent overview (coarse: one char per tile tag)
+        if text == "/map" or text.startswith("/map "):
+            w = getattr(game.adapter, "world", None)
+            if w is None:
+                print("[no world map built]")
+            else:
+                arg = text[len("/map"):].strip()
+                if arg.lower() in ("all", "full", "continent"):
+                    x0, y0, x1, y1 = w.bounds()
+                    rows = []
+                    for yy in range(y0, y1 + 1):
+                        cells = ["\U0001f534" if (xx == w.player.x and yy == w.player.y)
+                                 else {".": " ", "plains": "\u2591", "forest": "\u25b2",
+                                        "mountain": "\u25c6", "river": "~", "lake": "\u2248",
+                                        "cloud": "\u2601"}.get(w.tile_or_default(xx, yy), "\u25cb")
+                               for xx in range(x0, x1 + 1)]
+                        rows.append("".join(cells))
+                    print("\n".join(rows))
+                    print(f"[continent overview: x {x0}..{x1}, y {y0}..{y1}; \u2591 plains, \u25b2 forest,"
+                          f" \u25c6 mountain, ~ river, \u2248 lake, \u2601 exclusion cloud, \u25cb landmark,"
+                          f" \U0001f534 you]")
+                elif arg:
+                    hit = w.find_landmark(arg)
+                    if not hit.get("ok"):
+                        print(f"[{hit.get('error', 'landmark lookup failed')}]")
+                    else:
+                        from types import SimpleNamespace            # camera pan WITHOUT moving the party:
+                        saved = w.player                             # minimap only reads player.x/.y, so we
+                        w.player = SimpleNamespace(x=hit["coords"][0], y=hit["coords"][1])  # swap a view cursor
+                        print(worldmod.minimap(w))
+                        w.player = saved
+                        print(f"[viewing {hit['name']} at {tuple(hit['coords'])} - the party is still at "
+                              f"({saved.x}, {saved.y}); use world_travel to actually go there]")
+                else:
+                    print(worldmod.minimap(w))
+                    print(f"[viewport centered on ({w.player.x}, {w.player.y})] "
+                          f"terrain here: {w.tile_or_default(w.player.x, w.player.y)}")
             continue
         narration = game.dm_turn(text)
         print("\n" + narration)                 # show the player the story first...

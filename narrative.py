@@ -709,3 +709,35 @@ def seed_campaign(state, llm, cfg: Config, manifest: dict) -> None:
                       current_state="Just beginning.")
     if not state.plan:
         plan_first(state, llm, cfg)
+
+
+# ====================================================================== overworld travel clock (appended)
+# Terrain movement cost in MINUTES per tile crossed. The engine owns the clock; the model only
+# narrates what these numbers say. Plains march fast, forests slow the party, mountains cost a day.
+TERRAIN_TRAVEL_MINUTES = {
+    "plains": 120,      # 🟩 open ground, easy marching pace: 2 hours per tile
+    "forest": 240,      # 🌲 dense brush slows the party: 4 hours per tile
+    "mountain": 1440,   # 🗻 grueling climbs, treacherous footing: 8 hours... a full day per tile
+}
+TRAVEL_DEFAULT_MINUTES = 120          # unpriced passable terrain marches at the plains pace
+
+
+def travel_minutes(tags) -> int:
+    """Total clock cost for walking the given sequence of terrain tags (one tag per tile stepped onto)."""
+    return sum(TERRAIN_TRAVEL_MINUTES.get(t, TRAVEL_DEFAULT_MINUTES) for t in tags)
+
+
+def advance_travel(state, minutes: int):
+    """Move the clock by `minutes` and return (days_crossed, clock_text). Purely mechanical."""
+    days = advance(state, minutes)
+    return days, clock_text(state)
+
+
+def transition_directive(transition: dict | None) -> str:
+    """One-turn cinematic constraint when Python detects a biome shift mid-march ('context stripping'
+    lives in game.py: this text is injected into THIS turn's messages only and never persists)."""
+    if not transition:
+        return ""
+    return ("System Note: The party has just broken out of a " + str(transition.get("from", "?")) +
+            " into a " + str(transition.get("to", "?")) +
+            ". Halt standard travel narration immediately and describe the sweeping visual transition of the scenery.")

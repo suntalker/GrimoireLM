@@ -450,3 +450,319 @@ def dispatch(name: str, raw_args: Any, ctx: ToolContext) -> dict:
         return tool.fn(ctx, args)
     except Exception as ex:  # a tool bug must never crash the game loop
         return {"ok": False, "error": f"Tool failure: {type(ex).__name__}: {str(ex)[:200]}"}
+
+
+# ============================================================================ overworld / terrain layer
+# Everything below is APPENDED for the terrain-generation subsystem (see world.py). Existing tools above
+# are untouched; world movement is gated by Python's collision loop, never by the model.
+import world as _world  # noqa: E402  (appended section keeps the original import block intact)
+
+
+class TravelArgs(SoftModel):
+    direction: str = Field(min_length=1, max_length=12,
+                           description="north, south, east, west, northeast, northwest, southeast, southwest")
+    steps: int = Field(1, ge=1, le=100,
+                       description="how many tiles the player attempts to walk; Python advances ONE tile at a time and halts instantly at any barrier")
+
+
+class LookArgs(SoftModel):
+    direction: str = Field("", max_length=12, description="leave empty to examine the tile you stand on")
+    distance: int = Field(1, ge=1, le=12, description="tiles ahead to scan (raycast)")
+
+
+class LandmarkArgs(SoftModel):
+    name: str = Field(min_length=1, max_length=60, description="a landmark name from your notes (record_fact), e.g. 'Whispering Woods'")
+
+
+class TerrainAtArgs(SoftModel):
+    x: int = Field(description="tile coordinate x")
+    y: int = Field(description="tile coordinate y")
+    radius: int = Field(0, ge=0, le=6, description="survey ring around the point")
+
+
+class LiftExclusionArgs(SoftModel):
+    name: str = Field("", max_length=60, description="the exclusion zone's landmark name (e.g. 'The Obsidian Citadel'); leave empty to lift by coordinates")
+    x: int = Field(-10**6, description="survey center X when lifting by coordinate (ignored if name is given)")
+    y: int = Field(-10**6, description="survey center Y when lifting by coordinate (ignored if name is given)")
+    radius: int = Field(3, ge=1, le=8, description="Manhattan radius of cloud tiles to dissolve around the center")
+
+
+WORLD_RULES = """OVERWORLD AND TRAVEL
+- The continent was generated ONCE at startup by Python from your layout notes. You CANNOT see the map and must never invent terrain: call world_travel, world_look, or world_terrain before narrating ANY movement, scenery, or obstacle.
+- To move the player, call world_travel(direction, steps). Python walks one tile at a time and stops at mountains, rivers, lakes, and cloud exclusion zones; it snaps the player right before the barrier and reports stopped_by and steps_taken. Narrate ONLY that outcome (e.g. stopped_by 'cloud' means an unnatural magical barrier blocks the way - never let the player push through it in prose).
+- Before describing what lies ahead use world_look; for a specific place use world_terrain(x, y). Landmarks live in YOUR notes: when the party discovers a place, record_fact its name; later pull exact coordinates with world_landmark (never guess coordinates).
+- Cloud zones wall off high-level and endgame areas until the story earns access. Treat every blocked step as objective engine data, not a suggestion."""
+
+
+def _world_of(ctx: ToolContext):
+    """The WorldMap lives on the adapter once game.py boots the continent; None means no overworld yet."""
+    return getattr(ctx.adapter, "world", None)
+
+
+def _travel(ctx: ToolContext, a: TravelArgs) -> dict:
+    w = _world_of(ctx)
+    if w is None:
+        return {"ok": False, "error": "No world map has been generated yet."}
+    res = w.move_steps(a.direction, a.steps)
+    if res.get("ok"):
+        ahead = w.look(res["direction"], 3).get("tiles", [])[1:]   # what the player now faces (objective data)
+        res["ahead"] = [{"terrain": t["terrain"], "impassable": t["impassable"],
+                         "near_landmark": t["near_landmark"]} for t in ahead]
+    return res
+
+
+def _look(ctx: ToolContext, a: LookArgs) -> dict:
+    w = _world_of(ctx)
+    if w is None:
+        return {"ok": False, "error": "No world map has been generated yet."}
+    return w.look(a.direction, a.distance)
+
+
+def _landmark_tool(ctx: ToolContext, a: LandmarkArgs) -> dict:
+    w = _world_of(ctx)
+    if w is None:
+        return {"ok": False, "error": "No world map has been generated yet."}
+    return w.find_landmark(a.name)
+
+
+def _terrain_at(ctx: ToolContext, a: TerrainAtArgs) -> dict:
+    w = _world_of(ctx)
+    if w is None:
+        return {"ok": False, "error": "No world map has been generated yet."}
+    res = w.terrain_report(a.x, a.y, a.radius)
+    res["ok"] = True
+    res["nearest_landmark"] = w._nearest_landmark(a.x, a.y)
+    return res
+
+
+for _t in [
+    Tool("world_travel",
+         "Walk the overworld. Python advances ONE tile at a time and refuses to enter mountains, rivers, lakes, "
+         "or cloud exclusion zones: on a block the player snaps right before the barrier and the result says "
+         "stopped_by plus steps_taken. Trust those numbers; narrate only them.",
+         TravelArgs, _travel),
+    Tool("world_look",
+         "Raycast the terrain ahead (or underfoot when direction is empty): tags, passability, and any nearby "
+         "landmark per tile. Use it BEFORE describing scenery so you never invent terrain.",
+         LookArgs, _look),
+    Tool("world_landmark",
+         "Look up a recorded landmark's exact coordinates, tag, distance and bearing from the player, plus the "
+         "terrain mix around it. Pull names from your canon notes; never guess coordinates.",
+         LandmarkArgs, _landmark_tool),
+    Tool("world_terrain",
+         "Survey the terrain mix around any coordinate (x, y) within a radius. The only sanctioned way to learn "
+         "what a region holds without seeing the map.",
+         TerrainAtArgs, _terrain_at),
+]:
+    TOOLS[_t.name] = _t
+
+
+# ============================================================================ terrain-transition events (appended)
+# The biome-boundary soft stop is a cinematic narrative trigger, not a movement failure: Python flags
+# it on the ToolContext so game.py can inject a ONE-TURN directive (and strips it right after).
+import narrative as _narr  # noqa: E402  (clock + directives already imported at top; alias keeps this block self-contained)
+
+TRANSITION_NOTE = ("TERRAIN TRANSITION: this was NOT a completed march - the party crossed an ecological "
+                   "boundary mid-step. Halt standard travel narration and describe the sweeping visual shift of scenery.")
+
+
+def _travel_with_clock(ctx: ToolContext, a: TravelArgs) -> dict:
+    """world_travel + the in-game clock: each tile costs its biome's marching time (plains 2h 🟩,
+    forest 4h 🌲, mountain 1 day 🗻), and biome shifts become flagged transition events."""
+    res = _travel(ctx, a)
+    if not res.get("ok"):
+        return res
+    mins = int(res.get("travel_minutes") or 0)
+    if mins > 0:
+        days = _narr.advance(ctx.state, mins)
+        ctx.flags["time_advanced"] = True          # the engine already moved the clock: no per-turn auto-advance too
+        if days >= 1 and narrative.phase_name(ctx.state.minute) == "Night":
+            ctx.adapter.rest()                     # a full day of marching ends at camp: spell slots/daily powers back
+        res["travel_hours"] = round(mins / 60.0, 1)
+        res["clock"] = _narr.clock_text(ctx.state)
+        res["days_crossed"] = days
+        if days:
+            res["note"] = f"Days passed during the march: {days}. Honor the new clock when narrating."
+    tr = res.get("transition")
+    if res.get("stopped_by") == "mountain":        # legacy payloads/older saves may still wall peaks off
+        res["stopped_by"] = "terrain_transition"
+        res["transition"] = tr = {"from": res.get("current_terrain", "?"), "to": "mountain"}
+    if res.get("stopped_by") == "terrain_transition":
+        frm, to = (tr or {}).get("from", "?"), (tr or {}).get("to", "?")
+        ctx.flags["terrain_transition"] = {"from": frm, "to": to}     # event flag for the orchestrator (game.py)
+        res["events"] = [f"Terrain transition: {frm} -> {to}"]
+        res["narrative_directive"] = TRANSITION_NOTE
+    return res
+
+
+TOOLS["world_travel"].fn = _travel_with_clock      # wrapper over the original tool; schema/name untouched
+
+WORLD_RULES += """
+- Movement costs time BY BIOME (Python moves the clock itself): plains 2 hours/tile, forest 4 hours/tile, mountain 8 hours... a full day/tile. world_travel reports travel_hours and the new clock; never do time math yourself.
+- stopped_by 'terrain_transition' is NOT a barrier: the march halted because the party crossed into a new biome, snapping onto its first tile. Treat it as a cinematic trigger - describe the sweeping visual change of scenery, then let the player decide whether to push deeper (another world_travel continues from there)."""
+
+
+# ---------------------------------------------------------------- one-shot directive plumbing (appended)
+def take_transition_directive(ctx: ToolContext) -> str:
+    """POP the terrain-transition flag set this turn by world_travel and return the specialized
+    one-turn system directive ('Dynamic LLM Context'). game.py calls it right before narration, so
+    the constraint exists for exactly ONE turn; the next turn's messages are built fresh without it."""
+    tr = ctx.flags.pop("terrain_transition", None)
+    if not tr:
+        return ""
+    return _narr.transition_directive(tr)
+
+
+# ==================================================== exclusion-zone lifting (appended)
+# The barrier itself is Python-owned data; the LLM may only request its removal through THIS
+# sanctioned tool, and only when the story has genuinely earned it. The landscape underneath is
+# whatever was already painted there (or open plains via the default-fallback rule) -- the model
+# can never author revealed terrain from prose, so sequence-breaking stays impossible until the
+# DM decides access is earned.
+def _lift_exclusion(ctx: ToolContext, a: LiftExclusionArgs) -> dict:
+    w = _world_of(ctx)
+    if w is None:
+        return {"ok": False, "error": "No world map has been generated yet."}
+    by_coord = (not a.name.strip()) and a.x > -10**6 and a.y > -10**6
+    res = _world.lift_exclusion(w, name=a.name, x=a.x if by_coord else None,
+                                y=a.y if by_coord else None, radius=a.radius)
+    if res.get("ok") and res.get("cloud_tiles_removed"):
+        ctx.flags["exclusion_lifted"] = {"center": res["center"],
+                                         "tiles": res["cloud_tiles_removed"]}
+        res["events"] = [f"Exclusion barrier lifted at {res['center']}: "
+                         f"{res['cloud_tiles_removed']} cloud tiles dissolved"]
+        res["narrative_directive"] = (
+            "EXCLUSION LIFTED: the magical cloud barrier here has truly fallen. Describe the fog "
+            "tearing apart and the REAL landscape it concealed (use new_terrain_mix / "
+            "sample_revealed - do not invent other scenery). This region is now travelable; high-"
+            "level dangers inside are live.")
+    return res
+
+
+TOOLS["world_lift_exclusion"] = Tool(
+    "world_lift_exclusion",
+    "Lift one cloud ☁️ exclusion barrier NOW THAT THE STORY HAS EARNED ACCESS (final artifact "
+    "claimed, boss gate solved, party appropriately leveled...). Python deletes ONLY the cloud "
+    "tiles in range, revealing the real pre-generated landscape underneath, and reports exactly "
+    "what was uncovered. Non-cloud obstacles (rivers, lakes) stay impassable. NEVER call this for "
+    "a zone the party has not legitimately unlocked - blocked steps are objective engine data.",
+    LiftExclusionArgs, _lift_exclusion)
+
+WORLD_RULES += """
+- Cloud exclusion zones can be PERMANENTLY LIFTED, but only by YOU calling world_lift_exclusion once the story has truly earned access to that area (e.g. the endgame key item was won). It dissolves only the ☁️ barrier tiles and returns the real terrain revealed underneath - narrate THAT data, never invented scenery. After a lift, world_travel into the region works normally; lifts are irreversible and must never be used to rescue a stuck player or skip progression."""
+
+
+# ==================================================== skip travel / A* fast travel (appended)
+# When the player asks to make for a KNOWN place ("I head toward the nearest village"), Python owns
+# the whole journey: an A* search over the sparse grid finds the exact shortest LEGAL route within a
+# 6x6 domain around the party, accumulating biome march times (plains 2h, forest 4h, mountain 8h/tile)
+# and hard-blocking river/lake/cloud tiles. The clock advances in ONE atomic update; if nightfall is
+# crossed the engine auto-camps. The model only narrates the returned metadata - it cannot invent a
+# shortcut, phase through a barrier, or fudge the hours.
+FAST_SEARCH_RADIUS = getattr(_world, "FAST_SEARCH_RADIUS", 6)
+
+
+class FastTravelArgs(SoftModel):
+    name: str = Field("", max_length=60, description="landmark name from your notes (record_fact), e.g. 'Oakhaven'; leave empty to reach the closest landmark matching tag")
+    x: int = Field(-10**6, description="target coordinate X (snapped to the nearest recorded landmark in range; ignored if name is given)")
+    y: int = Field(-10**6, description="target coordinate Y (paired with x; ignored if name is given)")
+    tag: str = Field("", max_length=16, description="'nearest <tag>' requests: village, town, city, dungeon, forest, mountain, plains... picks the CLOSEST landmark of that kind inside the domain")
+    radius: int = Field(0, ge=0, le=80, description=f"domain size override in tiles (default {FAST_SEARCH_RADIUS}; widen ONLY when the story justifies a long organized journey)")
+
+
+def _fast_travel(ctx: ToolContext, a: FastTravelArgs) -> dict:
+    w = _world_of(ctx)
+    if w is None:
+        return {"ok": False, "error": "No world map has been generated yet."}
+    name = (a.name or "").strip()
+    coords_given = a.x > -10**6 and a.y > -10**6
+    if not name and not coords_given and (a.tag or "").strip():
+        # "head toward the NEAREST village": pick the closest recorded landmark of that tag inside
+        # the domain -- pure spatial math, so the model never has to remember coordinates.
+        rad = a.radius or FAST_SEARCH_RADIUS
+        px, py = w.player.x, w.player.y
+        want = narrative._norm(a.tag)
+        best = None                                   # (manhattan distance, display name, coords)
+        for key, c in w.landmarks.items():
+            nf = w.named_features.get(key, {})
+            tag = narrative._norm(nf.get("tag", ""))
+            if want not in (tag, narrative._norm(key)) or _manhattan_at(w, c) > rad:
+                continue
+            d = _manhattan_at(w, c)
+            if best is None or d < best[0]:
+                best = (d, nf.get("name") or key.title(), c)
+        if best is None:
+            return {"ok": False, "error": f"No known {a.tag} landmark within {rad} tiles. Survey with "
+                                          f"world_look, or walk with world_travel and record what you find."}
+        name = best[1]
+    res = _world.fast_travel(w, name=name, x=a.x if (coords_given and not name) else None,
+                             y=a.y if (coords_given and not name) else None,
+                             radius=a.radius or FAST_SEARCH_RADIUS)
+    if not res.get("ok"):
+        if res.get("stopped_by") == "no_route":       # barrier completely cut off every land route
+            stop = res.get("last_valid_tile") or [w.player.x, w.player.y]
+            res["final_position"] = list(stop)
+            res["events"] = [f"Fast travel blocked: no legal route to {res.get('destination', '?')}"]
+            res["narrative_directive"] = ("FAST TRAVEL BLOCKED: rivers/lakes/cloud exclusion zones completely "
+                                          "cut off every land route. The party holds position at the last valid "
+                                          "tile - narrate the impassable barrier ahead, never a crossing.")
+        return res
+    if res.get("already_there"):
+        res["clock"] = narrative.clock_text(ctx.state)
+        return res
+
+    # ---- Engine Clock: process the multi-tile path as ONE atomic update (bulk advance).
+    mins = int(res.get("travel_minutes") or 0)
+    days = narrative.advance(ctx.state, mins)
+    ctx.flags["time_advanced"] = True                # the engine moved the clock: skip per-turn auto-advance
+    res["days_crossed"] = days
+    res["clock"] = narrative.clock_text(ctx.state)
+    crossed_nightfall = mins > 0 and narrative.phase_name(ctx.state.minute) == "Night"
+    if crossed_nightfall:
+        ctx.adapter.rest()                           # night fell mid-trek: camp, restore daily resources
+        res["auto_camp"] = True
+        res["note"] = ("Night fell during the journey and the party made camp. Ask the player whether they "
+                       "wish to rest here before continuing.")
+    elif days:
+        res["note"] = f"Days passed during the trek: {days}. Honor the new clock when narrating."
+    res["events"] = [f"Fast travel: {res['tiles_traversed']} tiles to {res['destination']} "
+                     f"({res['travel_hours']}h)" + (", night fell en route" if crossed_nightfall else "")]
+    res["narrative_directive"] = (
+        f"FAST TRAVEL COMPLETE: the party reached {res['destination']} after {res['tiles_traversed']} "
+        f"tiles and {res['travel_hours']} hours on the road. Summarize the trip briefly in 2-3 sentences "
+        f"upon their arrival at the gates; use terrain_mix for flavor only - do not invent encounters.")
+    ctx.flags["fast_travel"] = {"destination": res["destination"], "hours": res["travel_hours"]}   # one-shot directive for game.py
+    # CLI HUD flag (read by game.tools_line): distance traveled + time elapsed on the status line.
+    ctx.flags["fast_travel_hud"] = {"tiles": res["tiles_traversed"], "hours": res["travel_hours"],
+                                    "dest": res["destination"], "clock": res["clock"]}
+    return res
+
+
+def _manhattan_at(w, c) -> int:
+    """Manhattan distance from the party to coordinate c (spatial helper for nearest-tag lookup)."""
+    return abs(int(c[0]) - w.player.x) + abs(int(c[1]) - w.player.y)
+
+
+TOOLS["world_fast_travel"] = Tool(
+    "world_fast_travel",
+    f"Skip-travel to a KNOWN landmark ({FAST_SEARCH_RADIUS}x{FAST_SEARCH_RADIUS} domain around the party by default). "
+    "Python runs A* pathfinding over the real map: the exact shortest legal route (rivers, lakes and cloud "
+    "exclusion zones are hard-blocked), accumulating march time BY BIOME (plains 2h, forest 4h, mountain 8h per "
+    "tile), then advances the engine clock in one atomic update and snaps the party onto the destination tile. "
+    "Use it when the player heads toward a place already recorded via record_fact ('the nearest village' -> "
+    "tag='village'). If no legal land route exists the party halts at the last valid tile - narrate the blockage.",
+    FastTravelArgs, _fast_travel)
+
+WORLD_RULES += """
+- SKIP TRAVEL: when the player heads toward a place ALREADY KNOWN (in your record_fact notes), call world_fast_travel(name=..., or tag='village' for the nearest of that kind, or x=/y= snapped to the nearest landmark). Python A*-pathfinds the exact shortest LEGAL route inside a 6x6 domain (hard-blocking rivers/lakes/clouds), charges real biome time (plains 2h, forest 4h, mountain 8h per tile), moves the clock in one atomic update, auto-camps if night falls, and snaps the party to the destination. Report tiles_traversed/travel_hours/clock exactly as returned; if stopped_by is 'no_route' the way is physically cut off - narrate the barrier, never a shortcut. Never fast-travel to a place the party has not discovered, and never to a still-sealed cloud zone."""
+
+
+def take_fast_travel_directive(ctx: ToolContext) -> str:
+    """POP this turn's fast-travel flag and return the ONE-TURN summary directive. game.py injects it
+    into this turn's messages only; the next turn rebuilds without it (context stripping)."""
+    ft = ctx.flags.pop("fast_travel", None)
+    if not ft:
+        return ""
+    return (f"System Note: The party fast-traveled to {ft.get('destination', 'their destination')} "
+            f"over {ft.get('hours', '?')} hours. Summarize the trip briefly in 2-3 sentences upon "
+            f"their arrival at the gates. Do not invent obstacles or encounters along the road.")
