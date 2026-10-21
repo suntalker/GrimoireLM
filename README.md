@@ -5,7 +5,7 @@ The engine owns every number. The model narrates, picks tool calls, and writes s
 ## Setup
     python -m venv venv && source venv/bin/activate      # Windows: venv\Scripts\activate
     pip install -r requirements.txt
-    python test_smoke.py        # offline test with a scripted fake model; needs no server
+    python test_smoke.py        
     python game.py              # needs a model server
 
 ## Point it at a model (config.json next to game.py, any field optional)
